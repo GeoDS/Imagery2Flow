@@ -35,3 +35,18 @@ In **step 2**, we regard the $N$ areas within the ROI as a graph structure to co
 `train_ODPrediction.py`: We train the OD prediction model using an 8:2:2 split. 
 
 `test_ODPrediction.py`: To test the transferability, we test our model on an unseen city after training.
+
+```bash
+# train image encoder
+python train_img_encoder.py --data_path images_path --total_epoch 120 --model_path encoder_ckpt_path --train_record train_record_name --bands 3 
+# get image embedding
+python get-img-embedding.py --train_record train_record_name --data_path images_path --pkl feature_name --ckpt encoder_ckpt_path  --bands 3;
+# train OD Prediction model using visual features
+python train_ODPrediction.py --log log_name --node_feats_path node_feats_path --region region;
+# test the transferability of OD Prediction model
+python test_ODPrediction.py --log log_name --node_feats_path node_feats_path --region region;
+```
+
+### Plot of the results
+
+Once you have the predicted flows in at least a MSA based on 10-m and 30-m images, you can reproduce figures in the paper using the notebook `analyze.ipynb`.
