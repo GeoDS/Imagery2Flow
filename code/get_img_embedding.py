@@ -24,9 +24,9 @@ parser.add_argument('--bands', type=int, default=0)
 parser.add_argument('--projection_dim', type=int, default=128)
 parser.add_argument('--resnet', type=str, default='resnet50')
 parser.add_argument('--model_path', type=str, default='./ckpt')
-parser.add_argument('--train_record', type=str, default='M1bands3-l8-record.txt')
+parser.add_argument('--log', type=str, default='M1bands3-l8-log.txt')
 parser.add_argument('--pkl', type=str, default="../data/Vis/train_on_M1bands3/M1bands3_M1_l8.pkl") # ../data/Vis/train_on_M1bands3/
-parser.add_argument('--ckpt', type=str, default="'M1bands3-l8_img_120.tar")
+parser.add_argument('--ckpt', type=str, default="M1bands3-l8_img_120.pth")
 
 
 if __name__ == '__main__':
@@ -87,8 +87,9 @@ if __name__ == '__main__':
                 os.makedirs(os.path.dirname(args.pkl))
             dict[ID] = feat
             
-        with open(args.pkl, 'wb') as handle:
-            pickle.dump(dict, handle)
+        node_feats = pd.DataFrame(dict).T
+        node_feats.index.name = 'geocode'
+        node_feats.to_csv('../data/Vis/train_on_M1bands3/M1bands3_M1_s2_h2048.csv')
 
     
     

@@ -26,7 +26,7 @@ parser.add_argument('--model_path', type=str, default='./ckpt')
 parser.add_argument('--schedule', default=[90, 110], nargs='*', type=int,
                     help='learning rate schedule (when to drop lr by 10x)')
 parser.add_argument('--cos', type=bool, default=False)
-parser.add_argument('--train_record', type=str, default='M1bands3-l8-record.txt')
+parser.add_argument('--log', type=str, default='M1bands3-l8-log.txt')
 
 
 def adjust_learning_rate(optimizer, epoch, args):
@@ -71,7 +71,7 @@ if __name__ == '__main__':
     # loss
     criterion = NT_Xent(args.batch_size, args.temperature, args.world_size)
 
-    prefix = args.train_record.rstrip("-record.txt")
+    prefix = args.log.rstrip("-log.txt")
     epoch_losses = []
 
     for epoch in range(1, args.total_epoch + 1):
