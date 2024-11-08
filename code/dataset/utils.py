@@ -7,7 +7,8 @@ import pickle
 
 import warnings
 
-def load_nids_dataset(node_feats_path='../data/Vis/train_on_M1bands3/M1bands3_M1_l8.pkl', year=2020, fprefix='CommutingFlow_', region='default', mappath='../data/CensusTract2020/nodeid_geocode_mapping.csv'):
+def load_nids_dataset(node_feats_path='../data/Vis/default.csv', year=2020, fprefix='CommutingFlow_', region='default', mappath='../data/CensusTract2020/nodeid_geocode_mapping.csv'):
+    
     region_prefix = region.split('t')[0]
     nid_dir = f"../data/Nid/{region_prefix}/"
 
@@ -19,23 +20,29 @@ def load_nids_dataset(node_feats_path='../data/Vis/train_on_M1bands3/M1bands3_M1
     
     # Load and prepare the mapping table
     mapping_table = pd.read_csv(mappath.replace(".csv", f"_{region_prefix}.csv"), dtype={
-    'geocode': 'string'}).set_index('geocode')
+    'geocode': 'string'})
 
     # Load OD flows and convert geocodes to node IDs
-    flow_dir='../data/LODES/', 
+    flow_dir='../data/LODES/'
     odflows_file = f'{flow_dir}{fprefix}{region_prefix}_{year}gt10.csv'
     odflows = pd.read_csv(odflows_file, dtype={
         'w_geocode': 'string',
         'h_geocode': 'string'
     })
     odflows = geocode_to_nodeid(odflows, mapping_table)
+    # odflows = odflows.assign(dis_m=(odflows['dis_m'] - odflows['dis_m'].min()) / (odflows['dis_m'].max() - odflows['dis_m'].min()))
     
     # Load and process node features
-    train_on = node_feats_path.lstrip('./data/Vis/train_on_').split('/')[0]
-    with open(node_feats_path, 'rb') as f:
-        dict = pickle.load(f)
-    node_feats = pd.DataFrame(dict).T
+    node_feats = pd.read_csv(node_feats_path, dtype={
+    'geocode': 'string'})
+    node_feats['geocode'] = mapping_table.set_index('geocode').loc[node_feats['geocode']].values # map census tract to node id
     node_feats = node_feats.rename(columns={'geocode': 'nid'}).set_index('nid').sort_index()
+   
+    # with open(node_feats_path, 'rb') as f:
+    #     dict = pickle.load(f)
+    # node_feats = pd.DataFrame(dict).T.reset_index()
+    # node_feats['index'] = mapping_table.set_index('geocode').loc[node_feats['index']].values # map census tract to node id
+    # node_feats = node_feats.rename(columns={'index': 'nid'}).set_index('nid').sort_index()
     node_feats = (node_feats - node_feats.mean()) / node_feats.std()
 
     # Load and process adjacency matrix
@@ -47,9 +54,10 @@ def load_nids_dataset(node_feats_path='../data/Vis/train_on_M1bands3/M1bands3_M1
     ct_adj = ct_adj.loc[ct_inorder, ct_inorder.astype(str)].fillna(0)
     ct_adj = ct_adj / ct_adj.max().max() # min is 0
     
+    mapping_table = mapping_table.set_index('geocode')
     # Compile data dictionary
     data = {
-        'train_on': train_on,
+        # 'train_on': train_on,
         'train_nids': mapping_table.loc[train_nids['geocode']].values.ravel(),
         'valid_nids': mapping_table.loc[val_nids['geocode']].values.ravel(),
         'test_nids': mapping_table.loc[test_nids['geocode']].values.ravel(),
@@ -74,7 +82,7 @@ def geocode_to_nodeid(dataframe, mapping_table):
 def nodeid_to_geocode(dataframe, region):
     df = dataframe.copy()
     region_prefix = region.split('t')[0]
-    mapping = pd.read_csv(f'../data/CensusTract2020/mapping_NodeID2geocode_{region_prefix}.csv').copy()           
+    mapping = pd.read_csv(f'../data/CensusTract2020/nodeid_geocode_mapping_{region_prefix}.csv').copy()           
     mapping.set_index('node_id', inplace=True)
     df['h_geocode'] = mapping.loc[df['src']].values
     df['w_geocode'] = mapping.loc[df['dst']].values
@@ -132,10 +140,11 @@ def evaluateOutput(model, g, trip_od, trip_volume, output_nodes, region, prefix,
 
 
 def log_transform(y):
-    return torch.log(y)
+    return torch.log2(y)
 
 def exp_transform(scaled_y):
-    return torch.exp(scaled_y)
+    output = torch.clamp(scaled_y, min=1)
+    return torch.pow(2, output)
 
 def RMSE(y_hat, y):
     return torch.sqrt(torch.mean((y_hat - y)**2))

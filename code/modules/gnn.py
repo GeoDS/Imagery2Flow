@@ -5,15 +5,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import dgl.function as fn
-
+from torch.nn.modules.loss import _Loss
 
 class MyModelBlock(nn.Module):
 
-    def __init__(self, num_nodes, in_dim, h_dim, num_hidden_layers=1,device='cpu'):
+    def __init__(self, num_nodes, in_dim, h_dim, weighted=False, init_noise_sigma=0.2, num_hidden_layers=1,device='cpu'):
         super().__init__()
 
         self.gat = GAT(num_nodes, in_dim, h_dim, h_dim, num_hidden_layers, device) # GAT for origin node
         self.bilinear = nn.Bilinear(h_dim, h_dim, 1)
+        self.activation = nn.ReLU()
+        self.criterion = BMCLoss(init_noise_sigma, weighted=weighted)
 
     def forward(self, g):
         return self.gat.forward(g)
@@ -21,7 +23,7 @@ class MyModelBlock(nn.Module):
     def get_loss(self,output_nodes, trip_od, scaled_trip_volume, g):
         node_embedding = self.forward(g)
         edge_prediction = self.predict_edge(node_embedding, trip_od, output_nodes)
-        edge_predict_loss = MSE(edge_prediction, scaled_trip_volume)
+        edge_predict_loss = self.criterion(edge_prediction.to(torch.float32), scaled_trip_volume.to(torch.float32))
 
         return edge_predict_loss 
     
@@ -35,8 +37,31 @@ class MyModelBlock(nn.Module):
         src_emb = node_embedding[flattened_o]
         dst_emb = node_embedding[flattened_d]
         # get predictions
-        return self.bilinear(src_emb, dst_emb)
-   
+        edge = self.bilinear(src_emb, dst_emb)
+        edge = self.activation(edge)
+        return edge
+
+class BMCLoss(_Loss):
+    def __init__(self, init_noise_sigma, weighted=False):
+        super(BMCLoss, self).__init__()
+        self.noise_sigma = torch.nn.Parameter(torch.tensor(init_noise_sigma, device="cuda"))
+
+    def forward(self, pred, target):
+        noise_var = self.noise_sigma ** 2
+        loss = bmc_loss(pred, target, noise_var)
+        return loss
+
+
+def bmc_loss(pred, target, noise_var, weighted=False):
+    logits = - 0.5 * (pred - target.T).pow(2) / noise_var
+    loss = F.cross_entropy(logits, torch.arange(pred.shape[0]).cuda())
+    loss = loss * (2 * noise_var).detach()
+    # gamma = 2
+    if weighted:
+        weights = (1 / target) # ** gamma
+        loss = (loss * weights).mean()
+
+    return loss
 
 class GAT(nn.Module):
 
