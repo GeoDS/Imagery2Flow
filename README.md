@@ -1,4 +1,4 @@
-# Image2Flow
+# Imagery2Flow
 Predicting Human Mobility Flows Using Deep Learning on Satellite Imagery
 
 **Abstract:** 
