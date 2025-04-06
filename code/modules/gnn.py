@@ -144,13 +144,3 @@ class GATLayer(nn.Module):
         g.update_all(self.message_func, self.reduce_func)
 
         return g.dstdata.pop('h')
-
-
-def MSE(y_hat, y, limit=20000):
-    if y_hat.shape[0] < limit:
-        return F.mse_loss(y_hat, y)
-    else:
-        mse = 0
-        for i in range(0, y_hat.shape[0], limit):
-            mse += torch.sum((y_hat[i: i + limit] - y[i: i + limit]) ** 2)
-        return mse / y_hat.shape[0]
