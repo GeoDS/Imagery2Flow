@@ -1,4 +1,4 @@
-# Imagery2Flow
+# Image2Flow
 Predicting Human Mobility Flows Using Deep Learning on Satellite Imagery
 
 **Abstract:** 
@@ -18,8 +18,10 @@ torch-sparse 0.6.17
 torch-spline-conv 1.2.2
 DeepGraphLibrary 1.1.2
 Scikit-Learn 1.3.2
-Numpy 1.26.1
-Pandas 2.1.3
+numpy 1.26.1
+pandas 2.1.3
+geopandas 1.0.1
+GDAL 3.10.2
 ```
 
 ### Structure
@@ -37,10 +39,12 @@ In **step 2**, we regard the $N$ areas within the ROI as a graph structure to co
 `test_ODPrediction.py`: To test the transferability, we test our model on an unseen city after training.
 
 ```bash
+# preprocess (partition) the satillite imagery
+python img_preprocessing.py --input_tif_path input_tif_path --output_tif_dir output_tif_dir --region region --shp_path administrative_divisions_shapefile_path;
 # train image encoder
-python train_img_encoder.py --data_path images_path --total_epoch 120 --model_path encoder_ckpt_path --train_record train_record_name --bands 3 
+python train_img_encoder.py --data_path images_path --total_epoch 120 --model_path encoder_ckpt_path --log log_name; 
 # get image embedding
-python get-img-embedding.py --train_record train_record_name --data_path images_path --pkl feature_name --ckpt encoder_ckpt_path  --bands 3;
+python get_img_embedding.py --log log_name --data_path images_path --output_path node_feats_path --ckpt encoder_ckpt_path;
 # train OD Prediction model using visual features
 python train_ODPrediction.py --log log_name --node_feats_path node_feats_path --region region;
 # test the transferability of OD Prediction model
@@ -49,7 +53,7 @@ python test_ODPrediction.py --log log_name --node_feats_path node_feats_path --r
 
 ### Plot of the results
 
-Once you have the predicted flows in at least a MSA based on 10-m and 30-m images, you can reproduce figures in the paper using the notebook `analyze.ipynb`.
+Once you have the predicted flows in at least a MSA based on 10-m and 30-m images, you can reproduce figures in the paper using the notebook `figs.ipynb`.
 
 ## Acknowledgement
 

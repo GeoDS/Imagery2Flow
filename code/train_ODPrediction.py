@@ -2,17 +2,18 @@ import pandas as pd
 import numpy as np
 import torch
 
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 import logging 
 
 from dataset import utils
 from modules.gnn import MyModelBlock
 import dgl
-
+import lightgbm as lgb
 
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--log', type=str, default='log/default.log') # 'log/default.log'
-parser.add_argument('--node_feats_path', type=str, default='../data/Vis/train_on_M1bands3/M1bands3_M1_l8.pkl') 
+parser.add_argument('--node_feats_path', type=str, default='../data/Vis/train_on_M1bands3/M1bands3_M1_l8.csv') 
 parser.add_argument('--region', type=str, default='M1') 
 parser.add_argument('--year', type=str, default='2020') 
 parser.add_argument('--device', type=str, default = 'cuda:0')
@@ -37,20 +38,13 @@ def adjust_learning_rate_warmup(optimizer, epoch, warmup_epochs, initial_lr, max
                 continue
             param_group['lr'] = max_lr
 
-def train(train_args):
+def train(train_args, logger):
     # device
     device = torch.device(train_args.device)
-   
-    # logger
-    logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    handlers=[logging.FileHandler(train_args.log, mode='a'), logging.StreamHandler()])
-    logger = logging.getLogger('#layers {}, emb {}'.format(train_args.num_hidden_layers, train_args.embedding_size))
-    logger.setLevel(logging.DEBUG)
 
-    torch.manual_seed(2024)
-    np.random.seed(2024)
+
+    torch.manual_seed(42)
+    np.random.seed(42)
 
     region = train_args.region
     data = utils.load_nids_dataset(year=train_args.year,node_feats_path=train_args.node_feats_path, region=region)
@@ -143,6 +137,7 @@ def train(train_args):
 
             log_trip_volume = utils.log_transform(torch.from_numpy(odflows[combined_condition][:, -1].astype(float))).to(device)
             loss = model.get_loss(output_nodes, trip_od, log_trip_volume, blocks)
+            noise_var.update(model.criterion.noise_sigma.item() ** 2)
             loss.backward()
 
             torch.nn.utils.clip_grad_norm_(model.parameters(), train_args.grad_norm)
@@ -226,6 +221,12 @@ def train(train_args):
     prefix = li[2] + "_" + li[1] + "_#layers{}_emb{}".format(train_args.num_hidden_layers, train_args.embedding_size) + "_" + li[3]
     train_on = li[0].replace("log/","").replace("bands3","")
     logger.info("----------------------------------------- "+region+" 0.2 Test")
+    
+    # Load the best model
+    checkpoint = torch.load(model_state_file)
+    model.load_state_dict(checkpoint['state_dict'])
+    logger.info(f"Loaded best model from epoch {checkpoint['epoch']} with RMSE {checkpoint['rmse']:.4f}")
+    
     model.eval()
     for it, (input_nodes, output_nodes, blocks) in enumerate(
             test_dataloader
@@ -264,7 +265,96 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+def extract_embeddings(model, g, nids, odflows, train_args, device):
+    condition = np.isin(odflows[:, 0], nids)
+    nids_d = np.unique(odflows[condition][:,1]).astype('int64')
+    nids_od =  np.unique(np.append(nids, nids_d, axis=0))
+    sampler = dgl.dataloading.MultiLayerFullNeighborSampler(train_args.num_hidden_layers+1)
+    dataloader = dgl.dataloading.DataLoader(
+        g, torch.from_numpy(nids_od).to(device), sampler,
+        batch_size=len(nids_od),
+        shuffle=True,
+        drop_last=False)
+    """Extract node embeddings from the trained model"""
+    model.eval()
+    for it, (input_nodes, output_nodes, blocks) in enumerate(
+        dataloader
+    ):
+        with torch.no_grad():
+            node_embedding = model(blocks).detach().cpu().numpy()
+    trip_od = torch.from_numpy(odflows[condition]) # src,dst,cnt(,dis_m)
+    indices_o = [torch.where(output_nodes == b)[0] for b in trip_od[:,0]]
+    flattened_o = torch.cat(indices_o).cpu().numpy()
+    indices_d = [torch.where(output_nodes == b)[0] for b in trip_od[:,1]]
+    flattened_d = torch.cat(indices_d).cpu().numpy()
+    # construct edge feature
+    scaled_dism = odflows[condition][:,3] #/ node_embedding.max()
+    X = np.concatenate([node_embedding[flattened_o], node_embedding[flattened_d],scaled_dism.reshape(-1,1)], axis=1) 
+    y = odflows[condition][:,2]
+    return X, y
+
+def train_LGBM(train_args, logger):
+    # Load the best model
+    device = torch.device(train_args.device)
+    model_state_file = './ckpt/{}_layers{}_emb{}.pth'.format(train_args.log.strip('log/').strip('.log'),train_args.num_hidden_layers, train_args.embedding_size)
+    checkpoint = torch.load(model_state_file)
+    
+    # Load data
+    region = train_args.region
+    data = utils.load_nids_dataset(year=train_args.year, node_feats_path=train_args.node_feats_path, region=region)
+    
+    # Get node IDs
+    train_nids = data['train_nids']
+    valid_nids = data['valid_nids']
+    test_nids = data['test_nids']
+    odflows = data['odflows']
+    
+    # Build graph
+    node_feats = data['node_feats']
+    ct_adj = data['weighted_adjacency']
+    g = utils.build_graph_from_matrix(ct_adj, node_feats.astype(np.float32), device)
+    
+    # Initialize and load model
+    model = MyModelBlock(data['num_nodes'], 
+                        in_dim=node_feats.shape[1], 
+                        h_dim=train_args.embedding_size, 
+                        num_hidden_layers=train_args.num_hidden_layers,
+                        init_noise_sigma=np.std(np.log10(odflows[np.isin(odflows[:, 0], train_nids)][:, 2])),
+                        device=device)
+    model.load_state_dict(checkpoint['state_dict'])
+    model.to(device)
+    
+    # Extract embeddings for all nodes
+    logger.info("Extracting embeddings...")
+    X_train, y_train = extract_embeddings(model, g, train_nids, odflows, train_args, device)
+    X_test, y_test = extract_embeddings(model, g, test_nids, odflows, train_args, device)
+
+    # Train Random Forest
+    logger.info("Training LGBM model...")
+    lgbm_params = {'max_depth':10}
+    gbm = lgb.LGBMRegressor( **lgbm_params,
+                seed=42 #
+                )
+    gbm.fit(X_train, y_train)
+    y_gbm = gbm.predict(X_test)
+
+    rmse = np.sqrt(mean_squared_error(y_test, y_gbm))
+    mae = mean_absolute_error(y_test, y_gbm)
+    
+    logger.info(f"LGBM Test |  RMSE: {rmse:.4f} - MAE: {mae:.4f} - CPC: {utils.CPC_(y_test, y_gbm)  :.4f}")
+
+
 if __name__ == "__main__":
     args = parser.parse_args()
+        # logger
+    logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    handlers=[logging.FileHandler(args.log, mode='a'), logging.StreamHandler()])
+    logger = logging.getLogger('#layers {}, emb {}'.format(args.num_hidden_layers, args.embedding_size))
+    logger.setLevel(logging.DEBUG)
+    # Train the GNN model
+    train(args, logger)
     
-    train(args)  
+    # Train and evaluate LGBM model
+    train_LGBM(args, logger)  

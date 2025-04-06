@@ -6,6 +6,7 @@ import torch_geometric.data
 import math
 import torch.nn as nn
 from modules import *
+import logging
 
 from dataset import ImageAugDataset
 
@@ -13,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_path', type=str, default='../data/M1/RS_s2_M1') 
+parser.add_argument('--data_path', type=str, default='../data/M1/l8_2020') 
 parser.add_argument('--bands', type=int, default=3)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--batch_size', type=int, default=128)
@@ -26,7 +27,7 @@ parser.add_argument('--model_path', type=str, default='./ckpt')
 parser.add_argument('--schedule', default=[90, 110], nargs='*', type=int,
                     help='learning rate schedule (when to drop lr by 10x)')
 parser.add_argument('--cos', type=bool, default=False)
-parser.add_argument('--log', type=str, default='M1bands3-l8-log.txt')
+parser.add_argument('--log', type=str, default='log/M1bands3-l8.log')
 
 
 def adjust_learning_rate(optimizer, epoch, args):
@@ -46,6 +47,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Setup logging
+    logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    handlers=[logging.FileHandler(args.log, mode='a'), logging.StreamHandler()])
+    logger = logging.getLogger('ImageEncoder')
+    logger.setLevel(logging.DEBUG)
+
     # dataset
     train_dataset = ImageAugDataset(path=args.data_path)
     
@@ -53,14 +62,9 @@ if __name__ == '__main__':
                                                    num_workers=6)
 
     # image encoder
-    resnet = torchvision.models.resnet50(pretrained=False, num_classes=args.projection_dim)
-
-    resnet.conv1 = nn.Conv2d(args.bands, 64, kernel_size=7, stride=2, padding=3,bias=False)
-    resnet.fc = nn.Linear(resnet.fc.weight.shape[1], args.projection_dim, bias=True)
-    resnet.fc.weight.data.normal_(mean=0.0, std=0.01)
-    resnet.fc.bias.data.zero_()
-    dim_mlp = resnet.fc.weight.shape[1]
-    img_encoder = ImageEncoder(resnet, args.projection_dim, dim_mlp).to(device)
+    encoder = torchvision.models.vit_l_16(pretrained=False, num_classes=args.projection_dim)
+    dim_mlp = encoder.heads[-1].weight.shape[1]
+    img_encoder = ImageEncoder(encoder, args.projection_dim, dim_mlp).to(device)
 
     img_encoder = nn.DataParallel(img_encoder)
     img_encoder.train()
@@ -71,33 +75,49 @@ if __name__ == '__main__':
     # loss
     criterion = NT_Xent(args.batch_size, args.temperature, args.world_size)
 
-    prefix = args.log.rstrip("-log.txt")
+    prefix = args.log.strip('log/').strip('.log')
     epoch_losses = []
+
+    logger.info("-----------------------------------------")
+    logger.info(f"Starting training with parameters:")
+    logger.info(f"Data path: {args.data_path}")
+    logger.info(f"Bands: {args.bands}")
+    logger.info(f"Projection dim: {args.projection_dim}")
+    logger.info(f"Learning rate: {args.lr}")
+    logger.info(f"Batch size: {args.batch_size}")
+    logger.info(f"Total epochs: {args.total_epoch}")
+    logger.info("-----------------------------------------")
 
     for epoch in range(1, args.total_epoch + 1):
         img_optimizer = adjust_learning_rate(img_optimizer, epoch, args)
+        epoch_loss = 0
         
         for step, data in enumerate(train_loader):
-
             img_optimizer.zero_grad()
             
             img1, img2 = data[0], data[1]
 
-            img1 = img1.to(device, dtype=torch.float32 )
-            img2 = img2.to(device, dtype=torch.float32 )
+            img1 = img1.to(device)
+            img2 = img2.to(device)
 
-            z_img1, z_img2 = img_encoder(img1, img2)
+            h_img1, h_img2, z_img1, z_img2 = img_encoder(img1, img2)
 
             loss = criterion(z_img1, z_img2)
+            epoch_loss += loss.item()
 
             loss.backward()
-
             img_optimizer.step()
 
-            epoch_losses.append(loss.item())
+            if step % 10 == 0:
+                logger.debug(f'Epoch: {epoch:03d} | Step: {step:03d} | Loss: {loss.item():.4f}')
 
-    out_img = os.path.join(args.model_path, "{}_img_{}.pth".format(prefix, args.total_epoch))
-    torch.save(img_encoder.state_dict(), out_img)
+        avg_epoch_loss = epoch_loss / len(train_loader)
+        epoch_losses.append(avg_epoch_loss)
+        logger.info(f'Epoch: {epoch:03d} | Average Loss: {avg_epoch_loss:.4f}')
+
+    out_pth = os.path.join(args.model_path, "{}_img_{}.pth".format(prefix, args.total_epoch))
+    torch.save(img_encoder.state_dict(), out_pth)
+    logger.info(f"Model saved to {out_pth}")
     
     plt.figure()                   
     plt.plot(epoch_losses,'b',label = 'loss', linewidth=0.5)       
@@ -105,4 +125,5 @@ if __name__ == '__main__':
     plt.xlabel('epoch')
     plt.xticks(ticks=np.arange(0, len(train_loader)*args.total_epoch, step=len(train_loader)*20), labels=np.arange(0, args.total_epoch, step=20))
     plt.legend()        
-    plt.savefig(os.path.join('./log',"{}_loss.jpg".format(prefix))) 
+    plt.savefig(os.path.join('./log',"{}_loss.jpg".format(prefix)))
+    logger.info(f"Loss plot saved to {os.path.join('./log', prefix + '_loss.jpg')}")

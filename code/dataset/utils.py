@@ -29,20 +29,13 @@ def load_nids_dataset(node_feats_path='../data/Vis/default.csv', year=2020, fpre
         'w_geocode': 'string',
         'h_geocode': 'string'
     })
-    odflows = geocode_to_nodeid(odflows, mapping_table)
-    # odflows = odflows.assign(dis_m=(odflows['dis_m'] - odflows['dis_m'].min()) / (odflows['dis_m'].max() - odflows['dis_m'].min()))
-    
+    odflows = geocode_to_nodeid(odflows, mapping_table)    
     # Load and process node features
     node_feats = pd.read_csv(node_feats_path, dtype={
     'geocode': 'string'})
     node_feats['geocode'] = mapping_table.set_index('geocode').loc[node_feats['geocode']].values # map census tract to node id
     node_feats = node_feats.rename(columns={'geocode': 'nid'}).set_index('nid').sort_index()
    
-    # with open(node_feats_path, 'rb') as f:
-    #     dict = pickle.load(f)
-    # node_feats = pd.DataFrame(dict).T.reset_index()
-    # node_feats['index'] = mapping_table.set_index('geocode').loc[node_feats['index']].values # map census tract to node id
-    # node_feats = node_feats.rename(columns={'index': 'nid'}).set_index('nid').sort_index()
     node_feats = (node_feats - node_feats.mean()) / node_feats.std()
 
     # Load and process adjacency matrix
@@ -62,7 +55,7 @@ def load_nids_dataset(node_feats_path='../data/Vis/default.csv', year=2020, fpre
         'valid_nids': mapping_table.loc[val_nids['geocode']].values.ravel(),
         'test_nids': mapping_table.loc[test_nids['geocode']].values.ravel(),
         'all_nids': mapping_table.loc[all_nids['geocode']].values.ravel(),
-        'odflows': odflows[['src', 'dst', 'count']].values,
+        'odflows': odflows[['src', 'dst', 'count', 'dis_m']].values,
         'num_nodes': ct_adj.shape[0],
         'node_feats': node_feats.values,
         'weighted_adjacency': ct_adj.values
@@ -77,7 +70,7 @@ def geocode_to_nodeid(dataframe, mapping_table):
     df['src'] = mapping.loc[df['h_geocode']].values
     df['dst'] = mapping.loc[df['w_geocode']].values
 
-    return df[['src', 'dst', 'count']]
+    return df[['src', 'dst', 'count','dis_m']]
     
 def nodeid_to_geocode(dataframe, region):
     df = dataframe.copy()
@@ -156,3 +149,5 @@ def MAE(y_hat, y):
 def CPC(y_hat, y):
     return 2 * torch.sum(torch.min(y_hat, y)) / (torch.sum(y_hat) + torch.sum(y))
 
+def CPC_(y, y_hat):
+    return 2 * np.minimum(y_hat, y).sum() / (y_hat.sum() + y.sum()) 
