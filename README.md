@@ -6,6 +6,8 @@ Understanding dynamically changing urban built environments and their associated
 ## Architecture of Image2Flow
 ![Architecture of Image2Flow](imgs/architecture.png)
 
+## Citation
+
 ## Code
 ### Requirements
 
@@ -59,5 +61,4 @@ Once you have the predicted flows in at least a MSA based on 10-m and 30-m image
 
 This project was benefited from [SimCLR](https://github.com/Spijkervet/SimCLR), [GMEL](https://github.com/jackmiemie/GMEL), [MMGR](https://github.com/bailubin/MMGR). Please read the source projects for further details. 
 
-## Citation
 
