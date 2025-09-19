@@ -55,6 +55,9 @@ python test_ODPrediction.py --log log_name --node_feats_path node_feats_path --r
 
 Once you have the predicted flows in at least a MSA based on 10-m and 30-m images, you can reproduce figures in the paper using the notebook `figs.ipynb`.
 
-## Acknowledgement
+## Acknowledgements
 
-This project was benefited from [SimCLR](https://github.com/Spijkervet/SimCLR), [GMEL](https://github.com/jackmiemie/GMEL), [MMGR](https://github.com/bailubin/MMGR). Thanks for their excellent work.
+This project was benefited from [SimCLR](https://github.com/Spijkervet/SimCLR), [GMEL](https://github.com/jackmiemie/GMEL), [MMGR](https://github.com/bailubin/MMGR). Please read the source projects for further details. 
+
+## Citation
+
