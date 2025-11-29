@@ -7,7 +7,7 @@ Understanding dynamically changing urban built environments and their associated
 ![Architecture of Image2Flow](imgs/architecture.png)
 
 ## Citation
-Xu, Y., Gao, S*, Huang, Q., Göçmen, A., Zhu, Q., & Zhang,F*. (2025). [Predicting Human Mobility Flows in Cities Using Deep Learning on Satellite Imagery.](https://doi.org/10.1038/s41467-025-65373-z) Nature Communications. 
+Xu, Y., Gao, S*, Huang, Q., Göçmen, A., Zhu, Q., & Zhang,F*. (2025). [Predicting Human Mobility Flows in Cities Using Deep Learning on Satellite Imagery.](https://doi.org/10.1038/s41467-025-65373-z) Nature Communications. 16(1), 10372.
 
 ```
 @article{xu2025predicting,
@@ -74,6 +74,7 @@ Once you have the predicted flows in at least a MSA based on 10-m and 30-m image
 ## Acknowledgements
 
 This project was benefited from [SimCLR](https://github.com/Spijkervet/SimCLR), [GMEL](https://github.com/jackmiemie/GMEL), [MMGR](https://github.com/bailubin/MMGR). Please read the source projects for further details. 
+
 
 
 
