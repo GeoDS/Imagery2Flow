@@ -67,6 +67,9 @@ python train_ODPrediction.py --log log_name --node_feats_path node_feats_path --
 python test_ODPrediction.py --log log_name --node_feats_path node_feats_path --region region;
 ```
 
+### Trained model checkpoint
+'NY_ModelWeights' folder contains the New York Metropolitan Region (M1) trained model with model checkpoint (.pth) on Pytorch together with model weights. One may apply and test this model in other geographic regions. 
+
 ### Plot of the results
 
 Once you have the predicted flows in at least a MSA based on 10-m and 30-m images, you can reproduce figures in the paper using the notebook `figs.ipynb`.
